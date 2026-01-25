@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>單機 RPG Debug 完整版</title>
+<style>
+body { font-family: monospace; background: #222; color: #eee; }
+#game { max-width: 900px; margin: auto; padding: 10px; }
+button { margin: 5px; padding: 5px 10px; }
+.panel { border: 1px solid #555; padding: 5px; margin: 5px 0; }
+#battleLog { border-top:1px solid #555; margin-top:5px; padding-top:5px; height:300px; overflow-y:auto; background:#111; }
+.debug { border-top:1px dashed #555; margin-top:5px; padding-top:5px; font-size:12px; color:#0f0; }
+</style>
+</head>
+<body>
+<div id="game">
+<h2>單機 RPG Debug 完整版</h2>
+<div id="chooseCharacter" class="panel">
+<h3>選擇角色</h3>
+<button onclick="startGame('戰士')">戰士</button>
+<button onclick="startGame('坦克')">坦克</button>
+<button onclick="startGame('法師')">法師</button>
+<button onclick="startGame('刺客')">刺客</button>
+</div>
+
+<div id="battlePanel" class="panel" style="display:none;">
+<h3>戰鬥</h3>
+<div id="playerStats"></div>
+<div id="enemyStats"></div>
+<div id="zoneStats"></div>
+<div id="actionButtons"></div>
+<div id="battleLog"></div>
+<div id="debugPanel" class="debug"></div>
+</div>
+</div>
+
+<script>
+// ===== 角色設定 =====
+const characters = {
+  '戰士': {HP:300, MP:50, ATK:25, skills:['狂暴斬'], actions:1},
+  '坦克': {HP:375, MP:25, ATK:15, skills:['銅牆鐵壁','猛推盾'], actions:1},
+  '法師': {HP:200, MP:125, ATK:20, skills:['火球術','冰封術','魔力護盾'], actions:2},
+  '刺客': {HP:225, MP:60, ATK:30, skills:['背刺'], actions:1}
+};
+
+const skillData = {
+  '狂暴斬': {MP:25, cooldown:2},
+  '銅牆鐵壁': {MP:15, cooldown:3},
+  '猛推盾': {MP:30, cooldown:4},
+  '火球術': {MP:30, cooldown:1},
+  '冰封術': {MP:25, cooldown:3},
+  '魔力護盾': {MP:20, cooldown:3},
+  '背刺': {MP:25, cooldown:2},
+  'Heal': {MP:15, cooldown:2}
+};
+
+// ===== 區域怪物資料 =====
+const ZONES = {
+1: {mobs:[{name:"史萊姆",hp:90,atk:12},{name:"野狼",hp:120,atk:18},{name:"哥布林",hp:135,atk:21},{name:"毒蛇",hp:100,atk:16}], boss:{name:"哥布林王",hp:330,atk:37}},
+2: {mobs:[{name:"骷髏兵",hp:150,atk:24},{name:"殭屍",hp:195,atk:15},{name:"暗影犬",hp:180,atk:27},{name:"食屍鬼",hp:165,atk:22}], boss:{name:"墓地主宰",hp:390,atk:42}},
+3: {mobs:[{name:"沙漠盜賊",hp:210,atk:33},{name:"毒蠍",hp:165,atk:36},{name:"沙塵魔",hp:240,atk:27},{name:"沙暴獸",hp:180,atk:32}], boss:{name:"黃沙暴君",hp:450,atk:48}},
+4: {mobs:[{name:"雪原狼",hp:240,atk:39},{name:"冰骷髏",hp:270,atk:36},{name:"寒霜精靈",hp:210,atk:42},{name:"冰刺魔",hp:300,atk:30}], boss:{name:"冰霜巨人",hp:525,atk:53}},
+5: {mobs:[{name:"火焰小鬼",hp:255,atk:45},{name:"熔岩獸",hp:330,atk:39},{name:"燃燒骷髏",hp:285,atk:48},{name:"火焰元素",hp:300,atk:36}], boss:{name:"熔核魔王",hp:600,atk:60}},
+6: {mobs:[{name:"暗影刺客",hp:300,atk:54},{name:"詛咒法師",hp:270,atk:57},{name:"虛無獸",hp:390,atk:45},{name:"影魔",hp:360,atk:50}], boss:{name:"虛空主宰",hp:675,atk:68}},
+7: {mobs:[{name:"天界守衛",hp:450,atk:63},{name:"審判者",hp:390,atk:68},{name:"光之構裝體",hp:480,atk:60},{name:"聖光騎士",hp:420,atk:65}], boss:{name:"天罰天使",hp:780,atk:75}},
+8: {mobs:[{name:"深淵惡魔",hp:525,atk:82},{name:"混沌爪獸",hp:570,atk:78},{name:"終焉使徒",hp:630,atk:72},{name:"地獄巨獸",hp:600,atk:80}], boss:{name:"世界吞噬者",hp:975,atk:95}}
+};
+
+// ===== 遊戲變數 =====
+let player, enemy, currentZone=1;
+let skillCooldowns={}, actionsLeft, kills=0, killsNeeded=45;
+
+// ===== 選角色 =====
+function startGame(choice){
+  document.getElementById('chooseCharacter').style.display='none';
+  document.getElementById('battlePanel').style.display='block';
+  player = {...characters[choice], currentHP:characters[choice].HP, currentMP:characters[choice].MP, level:1, EXP:0, nextExp:45};
+  player.apMax = player.actions;
+  player.ap = player.apMax;
+  for(let s of player.skills) skillCooldowns[s]=0;
+  skillCooldowns['Heal']=0;
+  actionsLeft = player.apMax;
+  spawnEnemy();
+  updateUI();
+  logBattle(`你選擇了 ${choice}`);
+}
+
+// ===== 敵人生成 =====
+function spawnEnemy(){
+  let zoneData = ZONES[currentZone];
+  let isBoss = false;
+  let rand = Math.random();
+  if(kills % (zoneData.mobs.length*5) === 0 && kills>0){ // Boss出現條件
+    isBoss = true;
+    let b = zoneData.boss;
+    enemy = {...b, maxHP:b.hp, isBoss:true, exp:b.hp/5};
+    if(Math.random()<0.3) enemy.bossWeapon=true;
+  } else {
+    let m = zoneData.mobs[Math.floor(Math.random()*zoneData.mobs.length)];
+    enemy = {...m, maxHP:m.hp, isBoss:false, exp:m.hp/5};
+  }
+  // 黃金怪
+  if(Math.random()<0.05){ enemy.isGolden=true; logBattle('遇到黃金怪!'); }
+  enemy.burnTurns=0;
+  enemy.stunned=false;
+}
+
+// ===== UI更新 =====
+function updateUI(){
+  document.getElementById('playerStats').innerHTML=
+    `角色 HP:${player.currentHP}/${player.HP} MP:${player.currentMP}/${player.MP} ATK:${player.ATK} AP:${player.ap}/${player.apMax} Lv:${player.level} EXP:${player.EXP}/${player.nextExp}`;
+  document.getElementById('enemyStats').innerHTML=`敵人: ${enemy.name} HP:${enemy.hp||enemy.maxHP} ${enemy.isBoss?'(Boss)':''} ${enemy.isGolden?'[黃金]':''}`;
+  document.getElementById('zoneStats').innerHTML=`區域: ${currentZone} 殺怪: ${kills}/${killsNeeded}`;
+  renderActions();
+}
+
+// ===== 行動按鈕 =====
+function renderActions(){
+  let container = document.getElementById('actionButtons');
+  container.innerHTML='';
+  let atkBtn = document.createElement('button');
+  atkBtn.textContent='普攻';
+  atkBtn.onclick = ()=>playerAttack();
+  container.appendChild(atkBtn);
+  for(let s of player.skills){
+    if(skillCooldowns[s]===0 && player.currentMP>=skillData[s].MP){
+      let btn = document.createElement('button');
+      btn.textContent=s;
+      btn.onclick=()=>useSkill(s);
+      container.appendChild(btn);
+    }
+  }
+  if(skillCooldowns['Heal']===0 && player.currentMP>=skillData['Heal'].MP){
+    let btn = document.createElement('button');
+    btn.textContent='Heal';
+    btn.onclick=()=>useSkill('Heal');
+    container.appendChild(btn);
+  }
+}
+
+// ===== 戰鬥日誌 =====
+function logBattle(msg){
+  let log = document.getElementById('battleLog');
+  log.innerHTML += msg+'<br>';
+  log.scrollTop = log.scrollHeight;
+  updateDebug();
+}
+
+// ===== Debug Panel =====
+function updateDebug(){
+  let dbg = document.getElementById('debugPanel');
+  dbg.innerHTML = `技能冷卻: ${JSON.stringify(skillCooldowns)}<br>`+
+  `玩家: HP:${player.currentHP}, MP:${player.currentMP}, AP:${player.ap}<br>`+
+  `敵人: HP:${enemy.hp||enemy.maxHP}, Boss:${enemy.isBoss}, 黃金:${enemy.isGolden}`;
+}
+
+// ===== 攻擊與技能 =====
+function playerAttack(){
+  if(player.ap<=0){ logBattle('沒有行動點'); return; }
+  let dmg = player.ATK;
+  enemy.hp = (enemy.hp||enemy.maxHP)-dmg;
+  logBattle(`你普通攻擊造成 ${dmg} 傷害`);
+  player.ap--;
+  checkTurnEnd();
+}
+
+function useSkill(skill){
+  if(player.ap<=0){ logBattle('沒有行動點'); return; }
+  if(skill==='Heal'){
+    let healAmt=Math.floor(player.HP*0.25);
+    player.currentHP=Math.min(player.HP,player.currentHP+healAmt);
+    logBattle(`使用 Heal 回復 ${healAmt} HP`);
+  } else {
+    let dmg = player.ATK*1.5;
+    enemy.hp = (enemy.hp||enemy.maxHP)-dmg;
+    logBattle(`使用 ${skill} 造成 ${dmg} 傷害`);
+  }
+  player.currentMP-=skillData[skill].MP;
+  skillCooldowns[skill]=skillData[skill].cooldown;
+  player.ap--;
+  checkTurnEnd();
+}
+
+// ===== 回合結束 =====
+function checkTurnEnd(){
+  // 敵人死亡
+  if((enemy.hp||enemy.maxHP)<=0){
+    kills++;
+    logBattle(`${enemy.name} 被擊敗`);
+    if(enemy.isBoss && enemy.bossWeapon) logBattle(`獲得 Boss 武器!`);
+    if(kills>=killsNeeded){ currentZone++; kills=0; killsNeeded+=15; logBattle(`進入區域 ${currentZone}`);}
+    spawnEnemy();
+  }
+
+  // 技能冷卻減少
+  for(let s in skillCooldowns){ if(skillCooldowns[s]>0) skillCooldowns[s]--; }
+
+  // 行動點恢復
+  if(player.ap<=0){ player.ap = player.apMax; logBattle('回合結束，AP恢復'); }
+  updateUI();
+}
+</script>
+</body>
+</html>
