@@ -1,264 +1,197 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
-<title>8 區 RPG（完整+5品質裝備+Boss掉落+統計）</title>
+<title>八域勇者錄｜終極版</title>
 <style>
-body{background:#1e1e1e;color:#eee;font-family:monospace}
-.enemy,.shop{border:1px solid #777;padding:6px;margin:4px;display:inline-block;width:170px}
-.dead{opacity:.3}
-button{margin:4px}
-#log{height:220px;overflow-y:auto;border:1px solid #555;padding:6px}
-#dropStats{border:1px solid #555;padding:6px;min-height:80px;margin-top:4px}
+body{background:#0e0e1a;color:#fff;font-family:Arial;margin:0;padding:0;}
+h1{text-align:center;background:linear-gradient(90deg,#ff00cc,#00ffff);-webkit-background-clip:text;color:transparent;margin:10px 0;}
+.panel{border:1px solid #444;padding:10px;margin:10px;background:#181830}
+button{padding:6px 10px;margin:4px;border-radius:6px;border:none;cursor:pointer}
+button:disabled{opacity:.4}
+.hp{color:#ff6666}.mp{color:#66aaff}.gold{color:#ffd700}
+.enemy{border:1px solid #555;padding:6px;margin:4px;cursor:pointer}
+.enemy.dead{opacity:.4}
+.item{border:1px dashed #555;padding:6px;margin:4px;cursor:pointer}
 </style>
 </head>
 <body>
+<h1>八域勇者錄</h1>
 
-<h2>8 區 RPG（完整+5品質裝備+Boss掉落+統計）</h2>
-<div id="info"></div>
-<button onclick="toggleShop()">商店 / 背包</button>
-<div id="shop"></div>
-<div id="enemies"></div>
-<div id="actions"></div>
-<div id="log"></div>
+<div id="select" class="panel">
+<h3>選擇角色</h3>
+<button onclick="start('Warrior')">戰士</button>
+<button onclick="start('Mage')">法師</button>
+<button onclick="start('Rogue')">刺客</button>
+<button onclick="start('Paladin')">聖騎士</button>
+</div>
 
-<h3>掉落統計</h3>
-<div id="dropStats">尚無掉落</div>
+<div id="game" style="display:none">
+<div id="info" class="panel"></div>
+<div id="enemies" class="panel"></div>
+<div id="skills" class="panel"></div>
+<div id="equip" class="panel"></div>
+<div id="bag" class="panel"></div>
+<div id="shop" class="panel">
+<button onclick="buyPotion()">藥水 50G</button>
+</div>
+</div>
 
 <script>
-// ================= 角色 =================
-const ROLE={ assassin:{ maxHP:260,maxMP:90,atk:30, passive:{ dmg:t=>t.HP/t.maxHP<0.4?1.2:1 } } };
+// ===== 基本資料 =====
+let player={}, enemies=[];
+let zone=1,kills=0,need=45;
 
-// ================= 技能 =================
-const SKILLS=[
- {name:"致命突刺",mp:25,cd:3,use(p,t){
-   if(t.HP/t.maxHP<0.5&&Math.random()<0.1){ t.HP=0;this.reset=true;return 0; }
-   return getPlayerATK()*2.5;
- }},
- {name:"煙霧割裂",mp:20,cd:4,aoe:true,use:p=>getPlayerATK()*0.8},
- {name:"影襲連斬",mp:30,cd:3,chain:4,use:p=>getPlayerATK()*0.75},
- {name:"暗影終結",mp:60,cd:6,use(p,t){
-   let d=getPlayerATK()*3;
-   if(t.HP-d<=0)p.MP=Math.min(p.maxMP,p.MP+30);
-   return d;
- }}
+const monsterNames=[
+["史萊姆","野狼","蝙蝠","毒蛇","小巨人"],
+["哥布林","骷髏兵","毒蛛","暗影狼","野豬"],
+["獸人","暗影犬","腐屍","狼人","毒蠍"],
+["黑騎士","幽魂","詛咒傀儡","魔眼","冰霜巨人"],
+["炎魔","熔岩獸","火靈","熔岩魔蛇","火焰巨狼"],
+["冰魔","霜狼","寒屍","冰龍","雪人"],
+["深淵惡魔","虛空獸","暗影龍","黑暗妖精","邪惡石像"],
+["終焉使徒","混沌魔神","毀滅龍","末日魔王","深淵龍王"]
 ];
 
-// ================= 裝備品質 =================
-const EQUIP_QUALITY = [
-  {name:"白", multiplier:1}, {name:"綠", multiplier:1.1},
-  {name:"藍", multiplier:1.25}, {name:"紫", multiplier:1.4},
-  {name:"橙", multiplier:1.6}
+const equipmentPool=[
+{name:"鐵劍",atk:10},
+{name:"魔導杖",atk:14},
+{name:"迅捷匕首",atk:12},
+{name:"聖盾",hp:40}
 ];
 
-// ================= 基礎裝備 =================
-const BASE_EQUIPMENTS = [
-  { name:"鐵劍", type:"weapon", atk:5, hp:0, basePrice:50 },
-  { name:"鋼劍", type:"weapon", atk:8, hp:0, basePrice:90 },
-  { name:"皮甲", type:"armor", atk:0, hp:30, basePrice:40 },
-  { name:"鎖甲", type:"armor", atk:0, hp:60, basePrice:80 }
-];
-
-function generateEquipment(base){
-  const q = EQUIP_QUALITY[Math.floor(Math.random()*EQUIP_QUALITY.length)];
-  return { ...JSON.parse(JSON.stringify(base)),
-           quality:q.name,
-           atk:Math.floor(base.atk*q.multiplier),
-           hp:Math.floor(base.hp*q.multiplier),
-           price:Math.floor(base.basePrice*q.multiplier) };
-}
-
-// ================= Boss 專屬裝備 =================
-const BOSS_EQUIPMENTS = {
-  1:[{name:"哥布林王之斧",type:"weapon",atk:12,hp:0,basePrice:120}],
-  2:[{name:"墓地主宰魔盾",type:"armor",atk:0,hp:60,basePrice:150}],
-  3:[{name:"黑狼王牙刃",type:"weapon",atk:18,hp:0,basePrice:200}],
-  4:[{name:"熔岩魔王鎧甲",type:"armor",atk:0,hp:80,basePrice:220}],
-  5:[{name:"亡靈王咒杖",type:"weapon",atk:25,hp:0,basePrice:300}],
-  6:[{name:"冰霜女王寒甲",type:"armor",atk:0,hp:100,basePrice:350}],
-  7:[{name:"沙漠之王沙刃",type:"weapon",atk:28,hp:0,basePrice:380}],
-  8:[{name:"地獄領主戰甲",type:"armor",atk:0,hp:120,basePrice:500}]
+// ===== 角色技能 =====
+const ROLE_SKILLS={
+Warrior:[
+{id:"strike",name:"猛擊",type:"single",mp:10,cd:1,now:0,baseScale:1.5},
+{id:"cleave",name:"旋風斬",type:"multi",mp:20,cd:2,now:0,baseScale:1.2},
+{id:"stun",name:"震地斬",type:"control",mp:25,cd:3,now:0,stun:0.2},
+{id:"ultimate",name:"破天斬",type:"ult",mp:50,cd:5,now:0,baseScale:2.5},
+{id:"heal",name:"回復術",type:"heal",mp:25,cd:2,now:0,rate:0.25}
+],
+Mage:[
+{id:"fireball",name:"火球術",type:"single",mp:15,cd:1,now:0,baseScale:1.5},
+{id:"meteor",name:"隕石術",type:"multi",mp:25,cd:3,now:0,baseScale:1.3},
+{id:"frost",name:"冰封術",type:"control",mp:20,cd:2,now:0,slow:2},
+{id:"ult",name:"雷神降臨",type:"ult",mp:60,cd:5,now:0,baseScale:2.8},
+{id:"heal",name:"治癒魔法",type:"heal",mp:25,cd:2,now:0,rate:0.25}
+],
+Rogue:[
+{id:"stab",name:"背刺",type:"single",mp:10,cd:1,now:0,baseScale:1.6},
+{id:"fanblade",name:"疾風連斬",type:"multi",mp:20,cd:2,now:0,baseScale:1.2},
+{id:"poisoncloud",name:"毒霧",type:"control",mp:25,cd:3,now:0,poison:3},
+{id:"ult",name:"影舞大連擊",type:"ult",mp:50,cd:5,now:0,baseScale:2.5},
+{id:"heal",name:"急救",type:"heal",mp:25,cd:2,now:0,rate:0.25}
+],
+Paladin:[
+{id:"smite",name:"聖擊",type:"single",mp:15,cd:1,now:0,baseScale:1.5},
+{id:"holywave",name:"聖光波",type:"multi",mp:25,cd:2,now:0,baseScale:1.3},
+{id:"shieldbash",name:"盾擊",type:"control",mp:20,cd:2,now:0,stun:0.2},
+{id:"ult",name:"天罰聖劍",type:"ult",mp:60,cd:5,now:0,baseScale:3.0},
+{id:"heal",name:"聖療",type:"heal",mp:25,cd:2,now:0,rate:0.25}
+]
 };
 
-// ================= 玩家 =================
-let player={ ...ROLE.assassin, HP:260, MP:90, actions:1, gold:100,
- inventory:[], equipment:{weapon:null, armor:null}, skills:SKILLS, cds:{} };
+// ===== 存檔 =====
+function save(){localStorage.setItem("srpg_final",JSON.stringify({player,zone,kills,need,enemies}));}
+function load(){
+let s=localStorage.getItem("srpg_final");
+if(!s)return;
+({player,zone,kills,need,enemies}=JSON.parse(s));
+document.getElementById("select").style.display="none";
+document.getElementById("game").style.display="block";
+render();
+}
+load();
 
-// ================= 區域怪物 =================
-const mob=(n,h,a,g,d)=>({name:n,HP:h,maxHP:h,ATK:a,alive:true,gold:g,dropRate:d});
-const ZONES={
-1:{m:[mob("史萊姆",90,10,10,0.25),mob("野狼",120,15,10,0.25),mob("哥布林",110,14,10,0.25),mob("蜘蛛",100,12,10,0.25)],b:mob("哥布林王",400,30,50,0.5)},
-2:{m:[mob("骷髏",150,18,12,0.25),mob("殭屍",170,16,12,0.25),mob("暗犬",160,20,12,0.25),mob("毒蠍",155,22,12,0.25)],b:mob("墓地主宰",480,35,60,0.5)},
-3:{m:[mob("狼人",200,28,15,0.3),mob("黑熊",230,25,15,0.3),mob("毒蛇",180,24,15,0.3),mob("地精",210,27,15,0.3)],b:mob("黑狼王",520,40,80,0.5)},
-4:{m:[mob("火元素",240,32,18,0.3),mob("熔岩蛇",260,34,18,0.3),mob("魔像",280,36,18,0.3),mob("熔蠍",250,30,18,0.3)],b:mob("熔岩魔王",580,45,100,0.5)},
-5:{m:[mob("死靈",260,38,20,0.35),mob("骷髏騎士",290,40,20,0.35),mob("幽魂",240,35,20,0.35),mob("巨人",310,42,20,0.35)],b:mob("亡靈王",630,50,120,0.5)},
-6:{m:[mob("冰巨人",320,45,25,0.35),mob("雪狼",280,42,25,0.35),mob("冰元素",300,44,25,0.35),mob("冰蛛",270,40,25,0.35)],b:mob("冰霜女王",680,55,140,0.5)},
-7:{m:[mob("沙蠍",330,48,30,0.4),mob("土狼",310,46,30,0.4),mob("沙影",290,44,30,0.4),mob("毒蟹",350,50,30,0.4)],b:mob("沙漠之王",720,60,160,0.5)},
-8:{m:[mob("惡魔兵",360,55,35,0.4),mob("地獄犬",380,58,35,0.4),mob("魔蛛",400,60,35,0.4),mob("守衛",420,62,35,0.4)],b:mob("地獄領主",800,70,200,0.6)}
-};
-
-// ================= 狀態 =================
-let zone=1,kills=0,need=45,boss=false;
-let enemies=[];
-const dropHistory=[];
-
-// ================= 初始化 =================
-spawnZone(); ui(); log(`進入第 ${zone} 區，需求 ${need}`);
-
-// ================= 商店 / 背包 =================
-function toggleShop(){
- shop.innerHTML="";
- SHOP_ITEMS();
- showInventory();
+// ===== 選角 =====
+function start(role){
+player={role,level:1,exp:0,gold:100,atk:20,def:5,hp:200,maxHp:200,mp:100,maxMp:100,skills:JSON.parse(JSON.stringify(ROLE_SKILLS[role])),equip:{weapon:null,armor:null},bag:[]};
+document.getElementById("select").style.display="none";
+document.getElementById("game").style.display="block";
+nextWave(); render(); save();
 }
 
-function SHOP_ITEMS(){
- BASE_EQUIPMENTS.forEach((b,i)=>{
-   const item = generateEquipment(b);
-   const d = document.createElement("div");
-   d.className="shop";
-   d.innerHTML=`商店: ${item.quality} ${item.name} <br>價錢: ${item.price}G`;
-   d.onclick=()=>{ if(player.gold>=item.price){player.gold-=item.price; player.inventory.push(item); log(`購買 ${item.quality} ${item.name}`); ui(); updateStats(); } };
-   shop.appendChild(d);
- });
+// ===== 波次生成 =====
+function nextWave(){
+enemies=[];
+let waveCount=3+Math.floor(Math.random()*4);
+for(let i=0;i<waveCount;i++){
+ let mName=monsterNames[zone-1][Math.floor(Math.random()*monsterNames[zone-1].length)];
+ enemies.push({name:mName,hp:120+zone*25,atk:5+zone*5,def:2+zone,alive:true,special:null,goldDrop:10+zone*5,itemDrop:Math.random()<0.3?equipmentPool[Math.floor(Math.random()*equipmentPool.length)]:null});
+}
+render(); save();
 }
 
-function showInventory(){
- player.inventory.forEach((it,i)=>{
-   const d = document.createElement("div");
-   d.className="shop";
-   d.innerHTML=`背包: ${it.quality} ${it.name}<br>ATK:${it.atk} HP:${it.hp}`;
-   d.onclick=()=>{ equipItem(i); ui(); updateStats(); log(`裝備 ${it.quality} ${it.name}`) };
-   shop.appendChild(d);
- });
+// ===== 技能 UI =====
+function renderSkills(){
+const area=document.getElementById("skills"); area.innerHTML="<b>技能</b><br>";
+player.skills.forEach((s,i)=>{
+ let b=document.createElement("button");
+ b.innerText=`${s.name} Lv${s.lv} ${s.now?`CD:${s.now}`:""} MP:${s.mp}`;
+ b.disabled=s.now>0||player.mp<s.mp||player.hp<=0;
+ b.onclick=()=>useSkill(i);
+ area.appendChild(b);
+ area.appendChild(document.createElement("br"));
+});
 }
 
-function equipItem(index){
- const item = player.inventory[index];
- if(!item) return;
- const type = item.type;
- if(player.equipment[type]) player.inventory.push(player.equipment[type]);
- player.equipment[type] = item;
- player.inventory.splice(index,1);
- player.HP = Math.min(player.HP,getPlayerMaxHP());
- updateStats();
+// ===== 技能施放 =====
+function useSkill(i){
+let s=player.skills[i];
+if(s.now>0||player.mp<s.mp||player.hp<=0)return;
+player.mp-=s.mp; s.now=s.cd;
+if(s.type==="single"){
+ let target=enemies.find(e=>e.alive); if(!target)return;
+ target.hp-=Math.floor(player.atk*s.baseScale);
+ if(target.hp<=0){target.alive=false;kills++;player.exp+=20;player.gold+=15;if(target.itemDrop)player.bag.push(target.itemDrop);}
+}
+if(s.type==="multi"){enemies.forEach(e=>{if(e.alive){e.hp-=Math.floor(player.atk*s.baseScale);if(e.hp<=0){e.alive=false;kills++;player.exp+=20;player.gold+=15;if(e.itemDrop)player.bag.push(e.itemDrop);}}});}
+if(s.type==="control"){enemies.forEach(e=>{if(e.alive){if(s.stun)e.stun=2;if(s.poison)e.poison=3;}});}
+if(s.type==="ult"){enemies.forEach(e=>{if(e.alive){e.hp-=Math.floor(player.atk*s.baseScale*2);if(e.hp<=0){e.alive=false;kills++;player.exp+=40;player.gold+=30;if(e.itemDrop)player.bag.push(e.itemDrop);}}});}
+if(s.type==="heal"){player.hp=Math.min(player.maxHp,player.hp+player.maxHp*s.rate);}
+endTurn(); render(); save();
 }
 
-// ================= 實際能力值 =================
-function getPlayerATK(){ let atk = player.atk; if(player.equipment.weapon) atk+=player.equipment.weapon.atk; return atk; }
-function getPlayerMaxHP(){ let hp=player.maxHP; if(player.equipment.armor) hp+=player.equipment.armor.hp; return hp; }
-
-// ================= 戰鬥 =================
-function spawnZone(){ enemies=[]; ZONES[zone].m.forEach(e=>enemies.push({...e})); boss=false; }
-function spawnBoss(){ enemies.push({...ZONES[zone].b}); boss=true; log("Boss 出現"); }
-
-function useSkill(i,target){
- const s=player.skills[i];
- if(player.actions<=0||player.MP<s.mp||player.cds[s.name]>0)return;
- player.MP-=s.mp; player.actions=0; player.cds[s.name]=s.cd;
-
- if(s.aoe) enemies.filter(e=>e.alive).forEach(e=>hit(e,calc(s.use(player),e)));
- else if(s.chain) enemies.filter(e=>e.alive).slice(0,s.chain).forEach(e=>hit(e,calc(s.use(player),e)));
- else{
-   let d=s.use(player,target);
-   if(d>0)hit(target,calc(d,target));
-   if(s.reset){player.cds[s.name]=0;s.reset=false;}
- }
- enemyTurn();
+// ===== Turn / 冷卻 & 怪物攻擊 =====
+function endTurn(){
+player.skills.forEach(s=>{if(s.now>0)s.now=Math.max(0,s.now-1);});
+enemies.forEach(e=>{if(e.alive){player.hp-=Math.max(0,e.atk-player.def);}});
+if(player.hp<=0){player.hp=Math.floor(player.maxHp*0.5);player.exp=Math.floor(player.exp*0.25);player.gold=Math.floor(player.gold*0.25);}
+checkEnemies();
 }
 
-function calc(base,t){ let d=base; if(player.passive.dmg)d*=player.passive.dmg(t); return Math.floor(d); }
-
-function hit(e,d){
- e.HP-=d; log(`${e.name} -${d}`);
- if(e.HP<=0){ 
-  e.alive=false; kills++; player.gold+=e.gold; 
-  dropLoot(e);
-  if(kills>=need&&!boss)spawnBoss();
-  if(boss && enemies.every(x=>!x.alive)){
-    zone++; 
-    if(zone>8){log("🎉 通關");return;} 
-    kills=0; need+=15; spawnZone(); log(`進入第 ${zone} 區`);
-  }
- }
+// ===== 檢查敵人 =====
+function checkEnemies(){
+if(enemies.every(e=>!e.alive)){
+ if(kills>=need){zone++;kills=0;need+=15;}
+ nextWave();
+}
 }
 
-// ================= 掉落統計 =================
-function dropLoot(enemy){
-  if(boss){ 
-    const bossLoots = BOSS_EQUIPMENTS[zone];
-    bossLoots.forEach(base=>{
-      const loot = generateEquipment(base);
-      const q = EQUIP_QUALITY[Math.floor(Math.random()*3)+2]; // 藍/紫/橙
-      loot.quality = q.name;
-      loot.atk = Math.floor(base.atk*q.multiplier);
-      loot.hp = Math.floor(base.hp*q.multiplier);
-      loot.price = Math.floor(base.basePrice*q.multiplier);
-      player.inventory.push(loot);
-      dropHistory.push({zone, name:loot.name, quality:loot.quality});
-      log(`🎯 Boss 掉落 ${loot.quality} ${loot.name}`);
-    });
-  } else {
-    if(Math.random() < enemy.dropRate){
-      const base = BASE_EQUIPMENTS[Math.floor(Math.random()*BASE_EQUIPMENTS.length)];
-      const loot = generateEquipment(base);
-      player.inventory.push(loot);
-      dropHistory.push({zone, name:loot.name, quality:loot.quality});
-      log(`怪物掉落 ${loot.quality} ${loot.name}`);
-    }
-  }
-  updateStats();
+// ===== 商店 =====
+function buyPotion(){if(player.gold<50)return;player.gold-=50;player.hp=Math.min(player.maxHp,player.hp+50);render();save();}
+
+// ===== 裝備 =====
+function renderEquip(){
+document.getElementById("equip").innerHTML=
+`武器：${player.equip.weapon?.name||"無"} 防具：${player.equip.armor?.name||"無"}`;
+document.getElementById("bag").innerHTML=player.bag.map((i,idx)=>
+`<div class="item" onclick="equipItem(${idx})">${i.name}</div>`).join("");
 }
+function equipItem(i){let item=player.bag.splice(i,1)[0];if(item.atk)player.equip.weapon=item;if(item.hp)player.equip.armor=item;renderEquip();render();save();}
 
-function updateStats(){
-  const statsDiv = document.getElementById("dropStats");
-  const statMap = {};
-  dropHistory.forEach(d=>{
-    const key = `${d.quality} ${d.name}`;
-    statMap[key] = (statMap[key]||0)+1;
-  });
-  let html="";
-  for(let k in statMap){
-    html += `${k} ×${statMap[k]}<br>`;
-  }
-  statsDiv.innerHTML = html || "尚無掉落";
+// ===== UI 渲染 =====
+function render(){
+document.getElementById("info").innerHTML=
+`Zone ${zone}　
+<span class="hp">HP ${player.hp}/${player.maxHp}</span>　
+<span class="mp">MP ${player.mp}/${player.maxMp}</span>　
+<span class="gold">G ${player.gold}</span>`;
+let e=document.getElementById("enemies"); e.innerHTML="<b>敵人</b><br>";
+enemies.forEach(m=>{let d=document.createElement("div");d.className="enemy"+(m.alive?"":" dead");d.innerText=m.name+" HP:"+m.hp;e.appendChild(d);});
+renderSkills(); renderEquip();
 }
-
-// ================= Enemy 回合 =================
-function enemyTurn(){
- enemies.filter(e=>e.alive).forEach(e=>player.HP-=e.ATK);
- player.actions=1;
- for(let k in player.cds)if(player.cds[k]>0)player.cds[k]--;
- ui();
-}
-
-// ================= UI =================
-function ui(){
- info.innerText=`區:${zone} HP:${player.HP}/${getPlayerMaxHP()} MP:${player.MP}/${player.maxMP} 金幣:${player.gold}`;
- enemiesDiv.innerHTML="";
- enemies.forEach(e=>{
-   const d=document.createElement("div");
-   d.className="enemy"+(e.alive?"":" dead");
-   d.innerText=`${e.name} HP:${e.HP}`;
-   if(e.alive)d.onclick=()=>useSkill(0,e);
-   enemiesDiv.appendChild(d);
- });
- actions.innerHTML="";
- player.skills.forEach((s,i)=>{
-   const b=document.createElement("button");
-   b.innerText=`${s.name} MP${s.mp} CD${player.cds[s.name]||0}`;
-   b.onclick=()=>useSkill(i,enemies.find(e=>e.alive));
-   actions.appendChild(b);
- });
-}
-
-function log(t){logDiv.innerHTML+=t+"<br>"; logDiv.scrollTop=99999;}
-
-const enemiesDiv=document.getElementById("enemies");
-const actions=document.getElementById("actions");
-const info=document.getElementById("info");
-const logDiv=document.getElementById("log");
-const shop=document.getElementById("shop");
 </script>
 </body>
 </html>
