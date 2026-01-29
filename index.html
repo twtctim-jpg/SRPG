@@ -1,207 +1,184 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
-<title>Pixel RPG</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Turn RPG 8區 彩色手機版</title>
 <style>
-body{background:#0e0e0e;color:#eee;font-family:monospace}
-#game{max-width:960px;margin:auto}
-.box{border:1px solid #444;padding:8px;margin:6px 0}
-.log{height:160px;overflow-y:auto;background:#000;padding:5px}
-img{image-rendering:pixelated}
-.char,.enemy{width:96px}
-button{margin:2px;padding:6px 10px}
+body { background:#111; color:#fff; font-family:sans-serif; margin:0; padding:10px; }
+button { font-size:18px; padding:16px; margin:4px 0; width:100%; border-radius:12px; border:none; }
+button:active{transform:scale(0.97);}
+.panel { border:1px solid #444; padding:10px; margin-bottom:10px; border-radius:12px; }
+.flex { display:flex; gap:6px; }
+.flex button { flex:1; }
+.monster { border:1px solid #666; padding:10px; margin:10px 0; border-radius:12px; }
+.big { font-size:20px; padding:18px; border-radius:12px; margin:4px 0; }
 </style>
 </head>
 <body>
 
-<div id="game">
-<h2>Pixel RPG</h2>
-<div class="box" id="mapBox"></div>
-<div class="box" id="playerBox"></div>
-<div class="box" id="enemyBox"></div>
-<div class="box" id="actions"></div>
-<div class="box"><div class="log" id="log"></div></div>
+<div class="panel" id="tutorial"></div>
+
+<div class="panel">
+<b>角色選擇</b>
+<div class="flex">
+<button style="background:#0099ff" onclick="choose('tank')">🛡 坦克</button>
+<button style="background:#ff5500" onclick="choose('warrior')">⚔ 劍士</button>
+<button style="background:#ffcc00;color:#000" onclick="choose('mage')">🔥 法師</button>
+<button style="background:#aa00ff" onclick="choose('assassin')">🗡 刺客</button>
+</div>
 </div>
 
-<script>
-// ================= 角色 =================
+<div class="panel" id="player"></div>
+<div class="panel" id="zonePanel"></div>
+<div class="panel" id="monsters"></div>
+<div class="panel" id="actions"></div>
+<div class="panel" id="bag"></div>
+<div class="panel" id="skillTree"></div>
 
-const classes={
- warrior:{name:"戰士",hp:120,atk:15,img:"assets/player_warrior.png"},
- tank:{name:"坦克",hp:180,atk:10,img:"assets/player_tank.png",sub:"hp"},
- mage:{name:"法師",hp:90,atk:18,img:"assets/player_mage.png",sub:"atk15"},
- assassin:{name:"刺客",hp:95,atk:20,img:"assets/player_assassin.png",sub:"atk2"}
+<script>
+/* ===== 教學 ===== */
+if(!localStorage.tut){
+tutorial.innerHTML="📘 教學：刷怪累積擊殺 → 解鎖Boss → 拿裝備 → 點技能樹 → 質變效果彩色顯示";
+localStorage.tut=1;
+}
+
+/* ===== 區域 & 怪物 ===== */
+const ZONES={
+1:{name:"腐化草原", monsters:[{n:"腐化野狼",hp:28,atk:6},{n:"瘟疫野豬",hp:45,atk:5},{n:"毒牙蜘蛛",hp:24,atk:5},{n:"變異食人草",hp:40,atk:5},{n:"復甦骷髏",hp:30,atk:6}]},
+2:{name:"灰燼礦坑", monsters:[{n:"灰燼礦工",hp:42,atk:8},{n:"熔岩史萊姆",hp:55,atk:7},{n:"失控鑽機",hp:60,atk:7},{n:"焦翼蝙蝠",hp:32,atk:9},{n:"爆裂幼蟲",hp:26,atk:10}]},
+3:{name:"黑霧沼澤", monsters:[{n:"沼澤毒蛇",hp:34,atk:9},{n:"詛咒巫屍",hp:45,atk:8},{n:"吸血沼蚊",hp:28,atk:7},{n:"黑霧幽影",hp:38,atk:9},{n:"腐沼巨蛙",hp:60,atk:8}]},
+4:{name:"血月古城", monsters:[{n:"血僕",hp:35,atk:10},{n:"血誓騎士",hp:50,atk:9},{n:"夜翼魔蝠",hp:28,atk:11},{n:"血池聚合體",hp:45,atk:8},{n:"血月觀測者",hp:40,atk:7}]},
+5:{name:"虛空裂隙", monsters:[{n:"虛空啃噬者",hp:60,atk:12},{n:"次元扭曲體",hp:55,atk:10},{n:"虛雷核心",hp:50,atk:13},{n:"裂隙觀測者",hp:45,atk:11},{n:"黑洞幼體",hp:65,atk:14}]},
+6:{name:"霜雪山脈", monsters:[{n:"冰霜巨狼",hp:50,atk:9},{n:"雪原熊",hp:70,atk:10},{n:"冰刺狼蛛",hp:45,atk:8},{n:"寒風靈",hp:40,atk:7},{n:"冰晶獵者",hp:55,atk:11}]},
+7:{name:"暗影沼澤", monsters:[{n:"暗影蛇",hp:42,atk:10},{n:"幽魂巫師",hp:48,atk:9},{n:"毒霧巨蟹",hp:55,atk:11},{n:"迷霧幻靈",hp:38,atk:10},{n:"黑泥巨蛙",hp:60,atk:12}]},
+8:{name:"炎龍熔巖", monsters:[{n:"熔岩龍幼崽",hp:70,atk:14},{n:"火焰元素",hp:60,atk:15},{n:"熔岩巨魔",hp:80,atk:13},{n:"火焰蝙蝠",hp:50,atk:12},{n:"熔核傀儡",hp:90,atk:16}]}
+};
+function needKills(z){ return 45+(z-1)*30; }
+function randMon(z){ const base=ZONES[z].monsters[Math.floor(Math.random()*ZONES[z].monsters.length)]; let m=JSON.parse(JSON.stringify(base)); m.maxHP=m.hp+z*10; m.hp=m.maxHP; m.atk+=z*2; m.stun=false; return m; }
+function spawnBoss(){ return {n:"👑 區域Boss",maxHP:200+zone*120,hp:200+zone*120,atk:12+zone*4,phase:1,boss:true}; }
+
+/* ===== 角色定義 ===== */
+const CLASSES={
+tank:{hp:160,atk:4,def:0.35,equipable:['weapon','sub','shield','ring']},
+warrior:{hp:120,atk:6,def:0,equipable:['weapon','sub','ring']},
+mage:{hp:90,atk:8,def:0,equipable:['weapon','sub','ring']},
+assassin:{hp:100,atk:9,def:0,equipable:['weapon','sub','ring']}
 };
 
-// ================= 8區怪物 =================
+/* ===== 技能定義 ===== */
+const SKILLS={
+shieldStrike:{name:"盾擊",type:"single",baseM:2.0,cd:2,class:['tank']},
+warCry:{name:"戰吼",type:"stun",cd:4,class:['tank','warrior']},
+shieldWall:{name:"盾牆",type:"buff",cd:5,class:['tank']},
+quakeSmash:{name:"崩山擊",type:"single",baseM:3.0,cd:6,class:['tank']},
 
-const zones=[
+slash:{name:"破甲斬",type:"single",baseM:2.2,cd:2,class:['warrior']},
+whirlwind:{name:"旋風斬",type:"aoe",baseM:1.3,cd:3,class:['warrior']},
+warShout:{name:"戰吼",type:"stun",cd:4,class:['warrior']},
+judgment:{name:"裁決",type:"single",baseM:3.5,cd:6,class:['warrior']},
 
-{name:"森林",monsters:[
-{name:"史萊姆",hp:50,atk:8,img:"assets/forest_slime.png"},
-{name:"野狼",hp:70,atk:11,img:"assets/forest_wolf.png"},
-{name:"哥布林",hp:80,atk:12,img:"assets/forest_goblin.png"}
-],boss:{name:"森林魔王",hp:180,atk:18,img:"assets/forest_boss.png"}},
+fireball:{name:"火球",type:"single",baseM:2.5,cd:2,class:['mage']},
+meteor:{name:"隕石",type:"aoe",baseM:1.6,cd:4,class:['mage']},
+freeze:{name:"冰封",type:"stun",cd:4,class:['mage']},
+disaster:{name:"天災",type:"aoe",baseM:2.2,cd:7,class:['mage']},
 
-{name:"洞窟",monsters:[
-{name:"蝙蝠",hp:60,atk:10,img:"assets/cave_bat.png"},
-{name:"骷髏",hp:90,atk:14,img:"assets/cave_skeleton.png"},
-{name:"石怪",hp:120,atk:16,img:"assets/cave_golem.png"}
-],boss:{name:"骸骨王",hp:260,atk:22,img:"assets/cave_boss.png"}},
+backstab:{name:"背刺",type:"single",baseM:3.0,cd:3,class:['assassin']},
+throwingBlade:{name:"飛刃",type:"aoe",baseM:1.1,cd:3,class:['assassin']},
+smoke:{name:"煙霧",type:"stun",cd:4,class:['assassin']},
+shadowKill:{name:"影殺",type:"single",baseM:4.0,cd:6,class:['assassin']}
+};
 
-{name:"沙漠",monsters:[
-{name:"沙蟲",hp:100,atk:15,img:"assets/desert_worm.png"},
-{name:"盜賊",hp:110,atk:17,img:"assets/desert_bandit.png"},
-{name:"木乃伊",hp:140,atk:19,img:"assets/desert_mummy.png"}
-],boss:{name:"沙漠王",hp:300,atk:25,img:"assets/desert_boss.png"}},
-
-{name:"雪原",monsters:[
-{name:"雪狼",hp:130,atk:18,img:"assets/snow_wolf.png"},
-{name:"冰史萊姆",hp:120,atk:16,img:"assets/snow_slime.png"},
-{name:"雪怪",hp:170,atk:21,img:"assets/snow_yeti.png"}
-],boss:{name:"冰霜巨人",hp:340,atk:27,img:"assets/snow_boss.png"}},
-
-{name:"遺跡",monsters:[
-{name:"詛咒盔甲",hp:160,atk:22,img:"assets/ruin_armor.png"},
-{name:"幽魂",hp:140,atk:20,img:"assets/ruin_ghost.png"},
-{name:"古代獸",hp:190,atk:24,img:"assets/ruin_beast.png"}
-],boss:{name:"古王",hp:380,atk:30,img:"assets/ruin_boss.png"}},
-
-{name:"火山",monsters:[
-{name:"熔岩怪",hp:180,atk:24,img:"assets/volcano_lava.png"},
-{name:"火蜥蜴",hp:160,atk:22,img:"assets/volcano_lizard.png"},
-{name:"炎魔",hp:210,atk:26,img:"assets/volcano_demon.png"}
-],boss:{name:"炎龍",hp:420,atk:33,img:"assets/volcano_boss.png"}},
-
-{name:"深淵",monsters:[
-{name:"闇影獸",hp:200,atk:26,img:"assets/abyss_beast.png"},
-{name:"墮落騎士",hp:230,atk:29,img:"assets/abyss_knight.png"},
-{name:"混沌體",hp:260,atk:31,img:"assets/abyss_chaos.png"}
-],boss:{name:"深淵王",hp:460,atk:36,img:"assets/abyss_boss.png"}},
-
-{name:"魔界",monsters:[
-{name:"魔兵",hp:240,atk:30,img:"assets/demon_soldier.png"},
-{name:"地獄犬",hp:260,atk:32,img:"assets/demon_dog.png"},
-{name:"魔將",hp:300,atk:35,img:"assets/demon_general.png"}
-],boss:{name:"魔王",hp:550,atk:40,img:"assets/demon_king.png"}}
-
-];
-
-const goldMonster={name:"黃金史萊姆",hp:200,atk:24,img:"assets/gold_slime.png"};
-
-// ================= 遊戲狀態 =================
-
-let zoneIndex=0;
-let player={job:"assassin",maxHP:0,hp:0,atk:0,potions:3,shield:0,reflect:0};
-let enemy=null;
-let status={burn:0,freeze:0};
-
-// ================= 工具 =================
-
-function log(t){let d=document.getElementById("log");d.innerHTML+=t+"<br>";d.scrollTop=d.scrollHeight;}
-function r(min,max){return Math.floor(Math.random()*(max-min+1))+min;}
-
-// ================= 初始化 =================
-
-function initPlayer(){
- let c=classes[player.job];
- player.maxHP=c.hp; player.atk=c.atk;
- if(c.sub==="hp") player.maxHP=Math.floor(player.maxHP*1.25);
- if(c.sub==="atk15") player.atk=Math.floor(player.atk*1.5);
- if(c.sub==="atk2") player.atk=Math.floor(player.atk*2);
- player.hp=player.maxHP;
+/* ===== 玩家 ===== */
+let player=null,monsters=[],zone=1,isBoss=false;
+function choose(c){
+  const b=CLASSES[c];
+  player={class:c,lv:1,exp:0,sp:5,gold:0,maxHP:b.hp,hp:b.hp,atk:b.atk,def:b.def,
+          kills:0,bossUnlocked:false,cds:[0,0,0,0],skillLv:[0,0,0,0],equip:{weapon:null,sub:null,shield:null,ring:null},bag:[]};
+  player.skills = Object.values(SKILLS).filter(sk=>sk.class.includes(c));
+  enterZone(1);
 }
 
-function renderMap(){
- let html="<b>選擇區域</b><br>";
- zones.forEach((z,i)=>html+=`<button onclick="enterZone(${i})">${z.name}</button>`);
- document.getElementById("mapBox").innerHTML=html;
+/* ===== Zone ===== */
+function enterZone(z){
+    zone = z;
+    player.kills = 0;
+    player.bossUnlocked = false;
+    isBoss = false;
+    monsters = [randMon(z), randMon(z)];
+
+    // 彩色文字提示
+    tutorial.innerHTML = `<span style="background:linear-gradient(90deg, #ff5555, #ffaa00, #55ff55, #55aaff, #aa55ff); -webkit-background-clip: text; color: transparent; font-weight:bold; font-size:20px;">
+    🌟 你進入了 ${ZONES[z].name}！</span>`;
+
+    setTimeout(() => { tutorial.innerHTML = ""; }, 3000);
+
+    render();
 }
 
-function enterZone(i){zoneIndex=i;log("進入："+zones[i].name);spawnEnemy();}
+/* ===== 戰鬥 ===== */
+function attack(i){
+ let dmg=player.atk+equipBonus("atk");
+ if(player.class=="assassin" && monsters[i].hp/monsters[i].maxHP<0.5 && Math.random()<0.3) dmg=9999;
+ monsters[i].hp-=dmg; endTurn();
+}
+function skill(s,i){
+ if(player.cds[s]>0)return;
+ let sk = player.skills[s];
+ let base=player.atk*(sk.baseM||1.5)*(1+0.2*player.skillLv[s]);
+ let tier=player.skillLv[s];
+ if(tier>=2){ if(sk.type=="single") base*=1.3; if(sk.type=="stun") monsters.forEach(m=>m.stun=true);}
+ if(tier>=3){ base*=1.5; if(sk.type=="aoe") monsters.forEach(m=>m.hp-=5);}
+ if(sk.type=="aoe") monsters.forEach(m=>m.hp-=base);
+ else if(sk.type=="stun") monsters.forEach(m=>m.stun=true);
+ else monsters[i].hp-=base;
+ player.cds[s]=Math.max(1,sk.cd-player.skillLv[s]);
+ endTurn();
+}
+function heal(){ player.hp=Math.min(player.maxHP,player.hp+player.maxHP*0.3); endTurn(); }
 
-function spawnEnemy(){
- status={burn:0,freeze:0};
- let roll=Math.random();
- if(roll<0.05) enemy={...goldMonster,maxHP:goldMonster.hp,gold:true};
- else if(roll<0.15){let b=zones[zoneIndex].boss;enemy={...b,maxHP:b.hp,boss:true};}
- else{let p=zones[zoneIndex].monsters;let m=p[r(0,p.length-1)];enemy={...m,maxHP:m.hp};}
- log("遭遇："+enemy.name);
- render();
+/* ===== 回合 ===== */
+function endTurn(){
+ player.cds=player.cds.map(c=>Math.max(0,c-1));
+ monsters.forEach(m=>{ if(m.hp>0&&!m.stun) player.hp-=Math.floor(m.atk*(1-player.def)); m.stun=false; });
+ monsters=monsters.filter(m=>m.hp>0);
+ if(monsters.length==0){
+  if(isBoss){ alert("🎉 Boss擊敗！"); dropEquip(); zone++; if(zone>8) zone=8; enterZone(zone); return; }
+  player.kills++; if(player.kills>=needKills(zone)) player.bossUnlocked=true;
+  monsters=[randMon(zone),randMon(zone)];
+ } render();
 }
 
-// ================= 顯示 =================
+/* ===== 裝備 ===== */
+function dropEquip(){ player.bag.push({name:"鋼鐵武器",slot:"weapon",atk:2+zone*2}); }
+function equipItem(i){ const it=player.bag[i]; if(it.slot=="sub"&&!["assassin","tank","mage"].includes(player.class)) return alert("不能裝副武"); player.equip[it.slot]=it; player.bag.splice(i,1); render(); }
+function equipBonus(type){ let v=0; Object.values(player.equip).forEach(e=>{if(e&&e[type])v+=e[type]}); return v; }
 
+/* ===== 技能樹 ===== */
+function upSkill(i){ if(player.sp<=0)return; player.skillLv[i]++; player.sp--; render(); }
+
+/* ===== UI ===== */
 function render(){
- let c=classes[player.job];
- document.getElementById("playerBox").innerHTML=
- `<b>${c.name}</b><br><img src="${c.img}" class="char"><br>
- HP:${player.hp}/${player.maxHP}<br>ATK:${player.atk}<br>藥水:${player.potions}`;
- document.getElementById("enemyBox").innerHTML=
- `<b>${enemy.name}</b><br><img src="${enemy.img}" class="enemy"><br>
- HP:${enemy.hp}/${enemy.maxHP}`;
- document.getElementById("actions").innerHTML=
- `<button onclick="attack()">攻擊</button>
-  <button onclick="skill()">技能</button>
-  <button onclick="potion()">藥水</button>`;
+ if(!player)return;
+ player.maxHP=CLASSES[player.class].hp+equipBonus("hp");
+ player.atk=CLASSES[player.class].atk+equipBonus("atk");
+
+ playerDiv.innerHTML=`❤️${player.hp}/${player.maxHP} ⚔${player.atk} 🛡${Math.floor(player.def*100)}% ⭐${player.lv}<br>擊殺:${player.kills}/${needKills(zone)}`;
+
+ zonePanel.innerHTML=`Zone ${zone}｜${ZONES[zone]?.name||"未知"}<br>${player.bossUnlocked?"👑 Boss已解鎖":""}${player.bossUnlocked?`<button class="big" style="background:#ff4444" onclick="monsters=[spawnBoss()];isBoss=true;render()">挑戰Boss</button>`:""}`;
+
+ monsters.innerHTML=monsters.map((m,i)=>`<div class="monster" style="color:${m.boss?'#ff8800':'#fff'};"><b>${m.n}</b><br>HP ${m.hp}/${m.maxHP}<button class="big" onclick="attack(${i})">普攻</button>${player.skills.map((s,si)=>`<button class="big" onclick="skill(${si},${i})">${s.name} CD:${player.cds[si]}</button>`).join("")}</div>`).join("");
+
+ actions.innerHTML=`<button class="big" style="background:#00aa00" onclick="heal()">💚治療</button>`;
+
+ bag.innerHTML="<b>🎒 背包</b><br>"+player.bag.map((it,i)=>`${it.name} [+${it.atk||0}攻] <button class="big" style="background:#ffaa00;color:#000;" onclick="equipItem(${i})">裝備</button>`).join("<br>");
+
+ skillTree.innerHTML="<b>🌳 技能樹</b><br>技能點："+player.sp+"<br>"+player.skills.map((s,i)=>{
+   let tier = player.skillLv[i]>=3?3:(player.skillLv[i]>=2?2:1);
+   let color = tier==1?"#aaa":tier==2?"#ff0":"#ff8800";
+   return `<div style="margin:6px 0;"><span style="color:${color}; font-weight:bold;">${s.name}</span> 等級:${player.skillLv[i]}<br><span style="color:${color};">質變層級:${tier}</span><br><button class="big" style="background:#444;color:white;" onclick="upSkill(${i})">升級</button></div>`;
+ }).join("");
 }
-
-// ================= 戰鬥 =================
-
-function attack(){
- enemy.hp-=r(player.atk-2,player.atk+2);
- afterPlayer();
-}
-
-function skill(){
- let dmg=0;
- if(player.job==="warrior"){
-  for(let i=0;i<r(5,10);i++) dmg+=Math.floor(player.atk*0.8);
- }
- if(player.job==="tank"){player.reflect=1;player.shield=2;log("進入防禦姿態");}
- if(player.job==="mage"){dmg=Math.floor(player.atk*1.5);status.burn=3;log("火球術 + 灼燒");}
- if(player.job==="assassin"){
-  if(enemy.hp<=enemy.maxHP*0.5 && Math.random()<0.1){dmg=enemy.hp;log("☠ 背刺必殺");}
-  else dmg=Math.floor(player.atk*2)+150;
- }
- enemy.hp-=dmg;
- afterPlayer();
-}
-
-function potion(){
- if(player.potions<=0)return;
- player.potions--;
- player.hp=Math.min(player.maxHP,player.hp+Math.floor(player.maxHP*0.4));
- enemyTurn();
- render();
-}
-
-function afterPlayer(){
- if(enemy.hp<=0){log("擊敗 "+enemy.name);spawnEnemy();return;}
- enemyTurn();
- render();
-}
-
-function enemyTurn(){
- if(status.freeze>0){status.freeze--;log(enemy.name+" 被冰凍");return;}
-
- let dmg=r(enemy.atk-2,enemy.atk+2);
- if(player.shield>0){dmg=Math.floor(dmg*0.7);player.shield--;}
- player.hp-=dmg;
- if(player.reflect>0){enemy.hp-=Math.floor(dmg*2);player.reflect=0;}
-
- if(status.burn>0){enemy.hp-=10;status.burn--;}
-
- if(player.hp<=0){log("你死亡，復活");player.hp=player.maxHP;}
- if(enemy.hp<=0){log("擊敗 "+enemy.name);spawnEnemy();}
-}
-
-// ================= 啟動 =================
-
-initPlayer();
-renderMap();
-
 </script>
 </body>
 </html>
